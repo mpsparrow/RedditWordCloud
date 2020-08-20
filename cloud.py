@@ -1,23 +1,15 @@
-import praw
-import json
 import argparse
-import re
 import csv
+import re
 from wordcloud import WordCloud, STOPWORDS, ImageColorGenerator
 from stop_words import safe_get_stop_words
 import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image, ImageColor
+from PIL import Image
 
-parser = argparse.ArgumentParser(description="Fetches comments from a reddit post and makes a word cloud")
-parser.add_argument("--sub", action="store_true",
-                    help="Treats the ID as the name of a sub")
-parser.add_argument("id", type=str,
-                    help="The ID of the reddit post")
-parser.add_argument("-n", metavar="limit", type=int,
-                    help="The amount of times \"More comments...\" is resolved. (Default: all)")
-parser.add_argument("-p", metavar="posts", type=int,
-                    help="Number of posts to fetch (Only in sub mode) (Default: 25)")
+parser = argparse.ArgumentParser(description="Turns a text file into a word cloud")
+parser.add_argument("file", type=str,
+                    help="The text file")
 parser.add_argument("-l", nargs="+",
                     help="The languages to add stopwords for")
 parser.add_argument("-o", metavar="out", type=str,
@@ -34,8 +26,6 @@ parser.add_argument("--color", action="store_true",
                     help="Use mask as color mask")
 parser.add_argument("-N", metavar="max_words", type=int,
                     help="Maximum number of words in WordCloud (Default 200)")
-parser.add_argument("-v", "--verbose", action="store_true",
-                    help="Dump comments to comments.log")
 parser.add_argument("-w", metavar="wordlist", type=str,
                     help="The wordlist to use for weighting (Default english)")
 parser.add_argument("-min", metavar="min_freq", type=float,
@@ -44,16 +34,8 @@ parser.add_argument("-boost", metavar="freq_boost", type=float,
                     help="The boost a word that isn't in the wordlist gets (Default 1)")
 parser.add_argument("-blow", metavar="freq_blow", type=float,
                     help="The \"anti-boost\" a word that is in the wordlist gets (Default 1)")
-parser.add_argument("--top", action="store_true",
-                    help="Use Top posts instead of Hot posts")
 
 args = parser.parse_args()
-
-if args.p is None:
-    args.p = 25
-
-if args.s is None:
-    args.s = 1
 
 if args.b is None:
     args.b = "black"
@@ -72,50 +54,6 @@ if args.boost is None:
 
 if args.blow is None:
     args.blow = 1
-
-
-def fetch_comments(comment) -> list:
-    comment_body = re.sub(r'[\[\(]?https?:\/\/[0-9A-Za-z\/\?#\[\]\)@\.!$\&%\-+,;=]+', '', comment.body)
-    comment_body = comment_body.replace("[deleted]", "")
-    comment_body = comment_body.replace("[removed]", "")
-    if len(comment.replies) == 0:
-        return [comment_body]
-
-    raw_comments = [comment_body]
-
-    for comm in comment.replies:
-        raw_comments.extend(fetch_comments(comm))
-
-    return raw_comments
-
-
-with open("config.json") as file:
-    settings = json.load(file)
-
-reddit = praw.Reddit(client_id=settings["client_id"],
-                     client_secret=settings["secret"],
-                     user_agent="Windows10:RWC:1.0")
-
-if args.sub:
-    if args.top:
-        posts = reddit.subreddit(args.id).top("all")
-    else:
-        posts = reddit.subreddit(args.id).hot(limit=args.p)
-else:
-    posts = [reddit.submission(id=args.id)]
-
-i = 1
-comments = []
-posts = list(posts)
-length = len(posts)
-for post in posts:
-    print(f"\rFetching comments... {i}/{length}   ", end=" ", flush=True)
-    post.comments.replace_more(limit=args.n)
-    for top_level_comment in post.comments:
-        comments.extend(fetch_comments(top_level_comment))
-    i += 1
-
-print(f"Done! Processed {len(comments)} comments")
 
 stopwords = set(STOPWORDS)
 if args.l is not None:
@@ -148,7 +86,12 @@ wc_obj = WordCloud(font_path="ARIALUNI.TTF",
                    contour_color=cc
                    )
 
-words = wc_obj.process_text(' '.join(comments))
+with open(args.file, encoding="utf-8") as file:
+    text = file.read()
+    text = re.sub(r'[\[\(]?https?:\/\/[0-9A-Za-z\/\?#\[\]\)@\.!$\&%\-+,;=]+', '', text)
+
+    words = wc_obj.process_text(text)
+
 
 with open(f"wordlists/{args.w}.csv") as list:
     lookup = csv.reader(list, delimiter=";")
@@ -181,10 +124,6 @@ if args.color is True:
 
 if args.o is not None:
     wordcloud.to_file(args.o)
-
-if args.verbose is True:
-    with open("comments.log", "w+", encoding="utf-8") as file:
-        file.writelines("%s\n" % comment for comment in comments)
 
 plt.imshow(wordcloud, interpolation="bilinear")
 plt.axis("off")
